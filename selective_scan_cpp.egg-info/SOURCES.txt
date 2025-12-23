@@ -1,0 +1,8 @@
+LICENSE
+README.md
+selective_scan.cpp
+setup.py
+selective_scan_cpp.egg-info/PKG-INFO
+selective_scan_cpp.egg-info/SOURCES.txt
+selective_scan_cpp.egg-info/dependency_links.txt
+selective_scan_cpp.egg-info/top_level.txt
