@@ -65,12 +65,16 @@ def selective_scan_fn(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_
     
     Args:
         use_cpp: 使用C++优化实现（来自Mamba_CPU项目）
-        use_fixlen: 使用两阶段优化算法（仅当use_cpp=True时有效）
+        use_fixlen: 使用两阶段优化算法（Python或C++都支持）
     """
     # 如果请求使用C++实现
     if use_cpp and HAS_SELECTIVE_SCAN_CPP:
         return selective_scan_cpp_fn(u, delta, A, B, C, D, z, delta_bias, delta_softplus,
                                      return_last_state, use_fixlen)
+    
+    # 如果请求使用fixlen但不使用C++，使用Python fixlen版本
+    if use_fixlen and not use_cpp:
+        return selective_scan_ref_fixlen(u, delta, A, B, C, D, z, delta_bias, delta_softplus, return_last_state)
     
     # 如果不能使用CUDA版本，则使用纯PyTorch实现
     if not HAS_SELECTIVE_SCAN_CUDA:
@@ -254,6 +258,65 @@ def selective_scan_ref(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta
     return out if not return_last_state else (out, last_state)
 
 
+def selective_scan_ref_fixlen(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_softplus=False,
+                               return_last_state=False):
+    """
+    Python参考实现的两阶段优化版本（fixlen）
+    
+    与selective_scan_ref完全相同的接口和输出，但使用两阶段计算优化：
+    阶段1：递推计算所有隐藏状态
+    阶段2：批量计算所有输出
+    """
+    dtype_in = u.dtype
+    u = u.float()
+    delta = delta.float()
+    if delta_bias is not None:
+        delta = delta + delta_bias[..., None].float()
+    if delta_softplus:
+        delta = F.softplus(delta)
+    batch, dim, dstate = u.shape[0], A.shape[0], A.shape[1]
+    is_variable_B = B.dim() >= 3
+    is_variable_C = C.dim() >= 3
+    
+    B = B.float()
+    C = C.float()
+    
+    # 计算deltaA和deltaB_u
+    deltaA = torch.exp(torch.einsum('bdl,dn->bdln', delta, A))
+    if not is_variable_B:
+        deltaB_u = torch.einsum('bdl,dn,bdl->bdln', delta, B, u)
+    else:
+        if B.dim() == 3:
+            deltaB_u = torch.einsum('bdl,bnl,bdl->bdln', delta, B, u)
+        else:
+            B = repeat(B, "B G N L -> B (G H) N L", H=dim // B.shape[1])
+            deltaB_u = torch.einsum('bdl,bdnl,bdl->bdln', delta, B, u)
+    
+    if is_variable_C and C.dim() == 4:
+        C = repeat(C, "B G N L -> B (G H) N L", H=dim // C.shape[1])
+    
+    # 阶段1：递推计算所有隐藏状态（逐步累积）
+    for i in range(1, u.shape[2]):
+        deltaB_u[:, :, i] = deltaA[:, :, i] * deltaB_u[:, :, i-1] + deltaB_u[:, :, i]
+    
+    # 阶段2：批量计算输出
+    if not is_variable_C:
+        y = torch.einsum('bdln,dn->bdl', deltaB_u, C)
+    else:
+        if C.dim() == 3:
+            y = torch.einsum('bdln,bnl->bdl', deltaB_u, C)
+        else:
+            y = torch.einsum('bdln,bdnl->bdl', deltaB_u, C)
+    
+    out = y if D is None else y + u * rearrange(D, "d -> d 1")
+    if z is not None:
+        out = out * F.silu(z)
+    out = out.to(dtype=dtype_in)
+    
+    last_state = deltaB_u[:, :, -1] if return_last_state else None
+    return out if not return_last_state else (out, last_state)
+
+
 def selective_fused_scan_ref(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
                               x_fwd_conv, x_bwd_conv_flip,
                               C_fwd, C_bwd, D_fwd, D_bwd,
@@ -327,6 +390,57 @@ def selective_fused_scan_ref(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
     return out.to(dtype_in)
 
 
+def selective_fused_scan_ref_fixlen(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
+                                      x_fwd_conv, x_bwd_conv_flip,
+                                      C_fwd, C_bwd, D_fwd, D_bwd,
+                                      z_fwd=None, z_bwd_flip=None):
+    """
+    融合双向Selective Scan的Python fixlen优化版本
+    
+    相比selective_fused_scan_ref，没有使用index，直接原地修改更高效
+    """
+    dtype_in = dt_fwd.dtype
+    seqlen = dt_fwd.size(2)
+    dstate = A_fwd.size(1)
+    
+    # 步骤5：计算deltaA和deltaB_u
+    deltaA_fwd = torch.exp(torch.einsum('bdl,dn->bdln', dt_fwd, A_fwd))
+    deltaA_bwd = torch.exp(torch.einsum('bdl,dn->bdln', dt_bwd, A_bwd))
+    
+    deltaB_u_fwd = torch.einsum('bdl,bnl,bdl->bdln', dt_fwd, B_fwd, x_fwd_conv)
+    deltaB_u_bwd = torch.einsum('bdl,bnl,bdl->bdln', dt_bwd, B_bwd, x_bwd_conv_flip)
+    
+    # 在N维度concat
+    deltaA_bi = torch.cat([deltaA_fwd, deltaA_bwd], dim=3)  # (b, d, l, 2n)
+    deltaB_u_bi = torch.cat([deltaB_u_fwd, deltaB_u_bwd], dim=3)  # (b, d, l, 2n)
+    
+    # 阶段1：递推（原地修改，避免select也避免index）
+    for i in range(1, seqlen):
+        deltaB_u_bi[:, :, i] += deltaA_bi[:, :, i] * deltaB_u_bi[:, :, i-1]
+    
+    # 阶段2：分离并计算输出
+    deltaB_u_fwd_out = deltaB_u_bi[:, :, :, :dstate]
+    deltaB_u_bwd_out = deltaB_u_bi[:, :, :, dstate:]
+    
+    y_fwd = torch.einsum('bdln,bnl->bdl', deltaB_u_fwd_out, C_fwd)
+    y_bwd = torch.einsum('bdln,bnl->bdl', deltaB_u_bwd_out, C_bwd)
+    
+    # 添加D项和门控
+    y_fwd = y_fwd + x_fwd_conv * rearrange(D_fwd, "d -> d 1")
+    y_bwd = y_bwd + x_bwd_conv_flip * rearrange(D_bwd, "d -> d 1")
+    
+    if z_fwd is not None:
+        y_fwd = y_fwd * F.silu(z_fwd)
+    if z_bwd_flip is not None:
+        y_bwd = y_bwd * F.silu(z_bwd_flip)
+    
+    # 反转并合并
+    y_bwd = y_bwd.flip(dims=[2])
+    out = y_fwd + y_bwd
+    
+    return out.to(dtype_in)
+
+
 def selective_fused_scan_fn(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
                              x_fwd_conv, x_bwd_conv_flip,
                              C_fwd, C_bwd, D_fwd, D_bwd,
@@ -337,7 +451,7 @@ def selective_fused_scan_fn(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
     
     Args:
         use_cpp: 是否使用C++优化实现
-        use_fixlen: 是否使用fixlen优化版本（仅当use_cpp=True时有效）
+        use_fixlen: 是否使用fixlen优化版本（Python和C++都支持）
     
     Returns:
         out: (b, d, l) - 融合后的输出
@@ -357,12 +471,19 @@ def selective_fused_scan_fn(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
                 C_fwd, C_bwd, D_fwd, D_bwd, z_fwd, z_bwd_flip
             )
     
-    # 否则使用Python参考实现
-    return selective_fused_scan_ref(
-        dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
-        x_fwd_conv, x_bwd_conv_flip,
-        C_fwd, C_bwd, D_fwd, D_bwd, z_fwd, z_bwd_flip
-    )
+    # Python实现：根据use_fixlen选择版本
+    if use_fixlen:
+        return selective_fused_scan_ref_fixlen(
+            dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
+            x_fwd_conv, x_bwd_conv_flip,
+            C_fwd, C_bwd, D_fwd, D_bwd, z_fwd, z_bwd_flip
+        )
+    else:
+        return selective_fused_scan_ref(
+            dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
+            x_fwd_conv, x_bwd_conv_flip,
+            C_fwd, C_bwd, D_fwd, D_bwd, z_fwd, z_bwd_flip
+        )
 
 
 class MambaInnerFnNoOutProj(torch.autograd.Function):

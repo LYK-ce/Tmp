@@ -18,6 +18,9 @@ import os
 import sys
 import torch
 import time
+import logging
+import platform
+from datetime import datetime
 
 # 强制使用纯PyTorch实现（CPU环境）
 os.environ['SELECTIVE_SCAN_FORCE_FALLBACK'] = 'TRUE'
@@ -163,36 +166,80 @@ def profile_with_viztracer(model, input_tensor, output_file='vim_cpu_profile.htm
     return output
 
 
+def setup_logging():
+    """设置日志记录"""
+    log_file = 'result.log'
+    
+    # 创建logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # 清除已有的handlers
+    logger.handlers.clear()
+    
+    # 文件handler
+    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(message)s')
+    file_handler.setFormatter(file_formatter)
+    
+    # 控制台handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(message)s')
+    console_handler.setFormatter(console_formatter)
+    
+    # 添加handlers
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+def log_print(msg, logger=None):
+    """同时打印到控制台和日志文件"""
+    if logger:
+        logger.info(msg)
+    else:
+        print(msg)
+
 def main():
     """主函数"""
-    print("=" * 80)
-    print("Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现")
-    print("=" * 80)
+    # 设置日志
+    logger = setup_logging()
+    
+    # 记录开始时间
+    start_time = datetime.now()
+    
+    log_print("=" * 80, logger)
+    log_print("Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现", logger)
+    log_print("=" * 80, logger)
+    log_print(f"\n测试时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}", logger)
+    log_print(f"平台: {platform.machine()}", logger)
     
     # 检查环境
-    print("\n环境配置:")
-    print(f"  PyTorch版本: {torch.__version__}")
-    print(f"  Python版本: {sys.version.split()[0]}")
-    print(f"  CPU线程数: {torch.get_num_threads()}")
-    print(f"  SELECTIVE_SCAN_FORCE_FALLBACK: {os.environ.get('SELECTIVE_SCAN_FORCE_FALLBACK', 'FALSE')}")
+    log_print("\n环境配置:", logger)
+    log_print(f"  PyTorch版本: {torch.__version__}", logger)
+    log_print(f"  Python版本: {sys.version.split()[0]}", logger)
+    log_print(f"  CPU线程数: {torch.get_num_threads()}", logger)
+    log_print(f"  SELECTIVE_SCAN_FORCE_FALLBACK: {os.environ.get('SELECTIVE_SCAN_FORCE_FALLBACK', 'FALSE')}", logger)
     
     # 检查C++扩展是否可用
     try:
         import selective_scan_cpp
-        print(f"  C++扩展: ✓ 可用")
+        log_print(f"  C++扩展: ✓ 可用", logger)
         cpp_available = True
     except ImportError:
-        print(f"  C++扩展: ✗ 不可用（将使用Python fallback）")
+        log_print(f"  C++扩展: ✗ 不可用（将使用Python fallback）", logger)
         cpp_available = False
     
     # 创建随机输入（batch_size=1, channels=3, height=224, width=224）
-    print("\n创建输入张量...")
+    log_print("\n创建输入张量...", logger)
     input_tensor = torch.randn(1, 3, 224, 224)
-    print(f"输入形状: {input_tensor.shape}")
+    log_print(f"输入形状: {input_tensor.shape}", logger)
     
     # 定义测试配置：Python和C++版本的原始、两阶段、融合实验
     test_configs = [
-        # === Python实现 ===
+        # === Python实现（4种）===
         {
             'name': 'Python-Original',
             'use_cpp_scan': False,
@@ -201,14 +248,28 @@ def main():
             'desc': 'Python原始实现（分离双向扫描）'
         },
         {
+            'name': 'Python-Fixlen',
+            'use_cpp_scan': False,
+            'use_fixlen_scan': True,
+            'use_fused_bidirectional': False,
+            'desc': 'Python两阶段实现（分离双向+fixlen优化）'
+        },
+        {
             'name': 'Python-Fused',
             'use_cpp_scan': False,
             'use_fixlen_scan': False,
             'use_fused_bidirectional': True,
             'desc': 'Python融合实现（N维度concat批量计算）'
         },
+        {
+            'name': 'Python-Fused-Fixlen',
+            'use_cpp_scan': False,
+            'use_fixlen_scan': True,
+            'use_fused_bidirectional': True,
+            'desc': 'Python融合+两阶段实现（双重优化）'
+        },
         
-        # === C++实现 ===
+        # === C++实现（4种）===
         {
             'name': 'CPP-Original',
             'use_cpp_scan': True,
@@ -221,7 +282,7 @@ def main():
             'use_cpp_scan': True,
             'use_fixlen_scan': True,
             'use_fused_bidirectional': False,
-            'desc': 'C++两阶段实现（优化循环）'
+            'desc': 'C++两阶段实现（分离双向+fixlen优化）'
         },
         {
             'name': 'CPP-Fused',
@@ -244,9 +305,9 @@ def main():
     timings = {}
     
     # ===== 关键修改：先创建基础模型并保存参数 =====
-    print("\n" + "=" * 80)
-    print("步骤1: 创建基础模型并保存参数（确保所有测试使用相同参数）")
-    print("=" * 80)
+    log_print("\n" + "=" * 80, logger)
+    log_print("步骤1: 创建基础模型并保存参数（确保所有测试使用相同参数）", logger)
+    log_print("=" * 80, logger)
     
     base_model = create_vim_tiny_model(
         use_cpp_scan=False,  # 创建Python版本作为基础
@@ -254,25 +315,25 @@ def main():
     )
     # 保存参数
     base_state_dict = base_model.state_dict()
-    print(f"✓ 基础模型参数已保存（参数量: {sum(p.numel() for p in base_model.parameters())/1e6:.2f}M）")
+    log_print(f"✓ 基础模型参数已保存（参数量: {sum(p.numel() for p in base_model.parameters())/1e6:.2f}M）", logger)
     
     # 删除基础模型释放内存
     del base_model
     
-    print("\n" + "=" * 80)
-    print("步骤2: 测试各种配置（使用相同的模型参数）")
-    print("=" * 80)
+    log_print("\n" + "=" * 80, logger)
+    log_print("步骤2: 测试各种配置（使用相同的模型参数）", logger)
+    log_print("=" * 80, logger)
     
     # 测试每种配置
     for config in test_configs:
         name = config['name']
-        print("\n" + "=" * 80)
-        print(f"测试配置: {name} - {config['desc']}")
-        print("=" * 80)
+        log_print("\n" + "=" * 80, logger)
+        log_print(f"测试配置: {name} - {config['desc']}", logger)
+        log_print("=" * 80, logger)
         
         # 如果C++不可用但请求使用C++，跳过
         if config['use_cpp_scan'] and not cpp_available:
-            print(f"⚠ 跳过 {name}（C++扩展不可用）")
+            log_print(f"⚠ 跳过 {name}（C++扩展不可用）", logger)
             continue
         
         # 创建模型
@@ -284,7 +345,7 @@ def main():
         
         # ===== 关键：加载相同的参数 =====
         model.load_state_dict(base_state_dict)
-        print(f"✓ 已加载基础模型参数")
+        log_print(f"✓ 已加载基础模型参数", logger)
         
         models[name] = model
         
@@ -302,9 +363,9 @@ def main():
     
     # 对比输出一致性
     if len(outputs) > 1:
-        print("\n" + "=" * 80)
-        print("输出一致性验证")
-        print("=" * 80)
+        log_print("\n" + "=" * 80, logger)
+        log_print("输出一致性验证", logger)
+        log_print("=" * 80, logger)
         
         ref_name = list(outputs.keys())[0]
         ref_output = outputs[ref_name]
@@ -313,52 +374,56 @@ def main():
             if name == ref_name:
                 continue
             diff = torch.abs(output - ref_output).max().item()
-            print(f"{name} vs {ref_name}: 最大差异 = {diff:.2e}", end="")
-            if diff < 1e-4:
-                print(" ✓ 一致")
-            else:
-                print(" ✗ 不一致!")
+            status = " ✓ 一致" if diff < 1e-4 else " ✗ 不一致!"
+            log_print(f"{name} vs {ref_name}: 最大差异 = {diff:.2e}{status}", logger)
     
     # 性能对比
     if len(timings) > 1:
-        print("\n" + "=" * 80)
-        print("性能对比")
-        print("=" * 80)
+        log_print("\n" + "=" * 80, logger)
+        log_print("性能对比", logger)
+        log_print("=" * 80, logger)
         
-        ref_name = 'Python-Ref' if 'Python-Ref' in timings else list(timings.keys())[0]
+        ref_name = 'Python-Original' if 'Python-Original' in timings else list(timings.keys())[0]
         ref_time = timings[ref_name]
         
-        print(f"{'配置':<20} {'时间(ms)':<12} {'相对加速':<12} {'说明'}")
-        print("-" * 80)
+        log_print(f"{'配置':<20} {'时间(ms)':<12} {'相对加速':<12} {'说明'}", logger)
+        log_print("-" * 80, logger)
         
         for name, avg_time in timings.items():
             speedup = ref_time / avg_time
             marker = "⭐" if speedup > 2.0 else ("✓" if speedup > 1.0 else "")
-            print(f"{name:<20} {avg_time:>8.2f} ms   {speedup:>6.2f}x      {marker}")
+            log_print(f"{name:<20} {avg_time:>8.2f} ms   {speedup:>6.2f}x      {marker}", logger)
     
     # 总结
-    print("\n" + "=" * 80)
-    print("测试总结")
-    print("=" * 80)
-    print(f"模型: Vim-tiny")
+    log_print("\n" + "=" * 80, logger)
+    log_print("测试总结", logger)
+    log_print("=" * 80, logger)
+    log_print(f"模型: Vim-tiny", logger)
     if models:
         first_model = list(models.values())[0]
-        print(f"参数量: {sum(p.numel() for p in first_model.parameters())/1e6:.2f}M")
-    print(f"输入尺寸: {input_tensor.shape}")
+        log_print(f"参数量: {sum(p.numel() for p in first_model.parameters())/1e6:.2f}M", logger)
+    log_print(f"输入尺寸: {input_tensor.shape}", logger)
     if outputs:
         first_output = list(outputs.values())[0]
-        print(f"输出尺寸: {first_output.shape}")
-    print(f"测试配置数: {len(timings)}")
-    print("\n生成的性能分析文件:")
+        log_print(f"输出尺寸: {first_output.shape}", logger)
+    log_print(f"测试配置数: {len(timings)}", logger)
+    log_print("\n生成的性能分析文件:", logger)
     for name in outputs.keys():
         profile_file = f'vim_{name.lower().replace("+", "p")}_profile.html'
-        print(f"  - {profile_file}")
-    print("=" * 80)
+        log_print(f"  - {profile_file}", logger)
     
-    print("\n提示:")
-    print("  1. 在浏览器中打开HTML文件查看详细性能分析")
-    print("  2. 对比不同实现的selective_scan调用耗时")
-    print("  3. 查看两阶段优化算法的性能提升")
+    # 记录结束时间
+    end_time = datetime.now()
+    elapsed = (end_time - start_time).total_seconds()
+    log_print(f"\n总耗时: {elapsed:.1f}秒", logger)
+    log_print("=" * 80, logger)
+    
+    log_print("\n提示:", logger)
+    log_print("  1. 在浏览器中打开HTML文件查看详细性能分析", logger)
+    log_print("  2. 对比不同实现的selective_scan调用耗时", logger)
+    log_print("  3. 查看result.log获取完整测试报告", logger)
+    
+    log_print("\n测试结果已保存到 result.log", logger)
 
 
 if __name__ == '__main__':
