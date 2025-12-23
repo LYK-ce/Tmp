@@ -42,7 +42,7 @@ __all__ = [
 class PatchEmbed(nn.Module):
     """ 2D Image to Patch Embedding
     """
-    def __init__(self, img_size=224, patch_size=16, stride=16, in_chans=3, embed_dim=768, norm_layer=None, flatten=True):
+    def __init__(self, img_size=128, patch_size=16, stride=16, in_chans=3, embed_dim=768, norm_layer=None, flatten=True):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
@@ -256,7 +256,7 @@ def segm_init_weights(m):
 
 class VisionMamba(nn.Module):
     def __init__(self,
-                 img_size=224,
+                 img_size=128,
                  patch_size=16,
                  stride=16,
                  depth=24,
@@ -275,7 +275,7 @@ class VisionMamba(nn.Module):
                  device=None,
                  dtype=None,
                  ft_seq_len=None,
-                 pt_hw_seq_len=14,
+                 pt_hw_seq_len=8,
                  if_bidirectional=False,
                  final_pool_type='none',
                  if_abs_pos_embed=True,

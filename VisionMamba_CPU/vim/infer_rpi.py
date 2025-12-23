@@ -41,7 +41,7 @@ def load_imagenet_classes():
         # Fallback to default class names
         return [f"Class {i}" for i in range(1000)]
 
-def preprocess_image(image_path, input_size=224):
+def preprocess_image(image_path, input_size=128):
     """Preprocess the input image"""
     # Load image
     if image_path.startswith('http'):
