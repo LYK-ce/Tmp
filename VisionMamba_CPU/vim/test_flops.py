@@ -29,7 +29,7 @@ def main():
     print()
     
     try:
-        # 测试标准128x128模型的推理时间
+        # 测试标准224x224模型的推理时间
         print("模型信息:")
         print("-" * 30)
         model = create_model(
@@ -44,8 +44,8 @@ def main():
         # 将模型设置为评估模式
         model.eval()
         
-        # 创建一个随机输入张量（模拟128x128的RGB图像）
-        input_tensor = torch.randn(1, 3, 128, 128)
+        # 创建一个随机输入张量（模拟224x224的RGB图像）
+        input_tensor = torch.randn(1, 3, 224, 224)
         
         # 计算参数量
         params = sum(p.numel() for p in model.parameters())
@@ -60,7 +60,7 @@ def main():
         print()
         
         # 测试推理时间
-        print("推理性能 (输入尺寸: 128×128):")
+        print("推理性能 (输入尺寸: 224×224):")
         print("-" * 30)
         
         # 预热运行

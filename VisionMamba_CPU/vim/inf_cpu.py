@@ -56,7 +56,7 @@ def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
         use_fused_bidirectional: 使用融合双向扫描（合并正向和反向计算）
     
     配置：
-   - img_size: 128
+   - img_size: 224
    - patch_size: 16
     - embed_dim: 192
     - depth: 24
@@ -234,7 +234,7 @@ def main():
     
     # 创建随机输入（batch_size=1, channels=3, height=128, width=128）
     log_print("\n创建输入张量...", logger)
-    input_tensor = torch.randn(1, 3, 128, 128)
+    input_tensor = torch.randn(1, 3, 224, 224)
     log_print(f"输入形状: {input_tensor.shape}", logger)
     
     # 定义测试配置：Python和C++版本的原始、两阶段、融合实验
