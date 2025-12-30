@@ -1,0 +1,4 @@
+# ninja log v7
+23	9711	7887085793666805	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/selective_scan_core.obj	3cff9c345379e32c
+13	9921	7887085793571678	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/modules/VisionMamba.obj	79f5a2f4c2063e11
+10	11252	7887846870662345	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/modules/VisionMamba.obj	79f5a2f4c2063e11

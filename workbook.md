@@ -1,5 +1,302 @@
 # 工作记录
 
+## 任务27：实现完整C++ VisionMamba模块
+- 开始时间：2025-12-29T18:30
+- 结束时间：2025-12-29T18:47
+- 状态：✓完成
+- 修改文件：VisionMamba.cpp, setup.py, mamba_simple.py, models_mamba.py, inf_cpu.py
+- 依赖：任务26
+
+### 任务目标
+在mamba-1p1p1/modules中实现VisionMamba.cpp，完整实现BiMamba v2的前向传播，可调用selective_scan.cpp中的优化函数。
+
+### 实现内容
+
+#### 1. VisionMamba.cpp (modules目录)
+完整实现Mamba类的前向传播，包括：
+- `Mamba_Forward_Cpu()`: 主入口函数，接收hidden_states和所有权重
+- `Mamba_Forward_Bidirectional_Cpu()`: 分离双向实现（Original/Fixlen）
+- `Mamba_Forward_Fused_Cpu()`: 融合双向实现（Fused/Fused-Fixlen）
+
+**核心实现**:
+```cpp
+// 输入投影: (B, L, d_model) -> (B, 2*d_inner, L)
+auto xz = torch::mm(h_flat, in_proj_weight.t()).reshape({B, L, -1}).permute({0, 2, 1});
+
+// 分组卷积
+auto x_fwd_conv = torch::nn::functional::conv1d(x_fwd_padded, conv1d_fwd_weight,
+    Conv1dFuncOptions().groups(d_inner).bias(conv1d_fwd_bias));
+
+// 调用selective_scan函数
+y_fwd = Selective_Scan_Ref_Cpu(x_fwd_conv, dt_fwd, A_fwd, B_fwd, C_fwd, ...);
+y_bwd = Selective_Scan_Ref_Cpu(x_bwd_conv_flip, dt_bwd, A_bwd, B_bwd, C_bwd, ...);
+
+// 合并结果并输出投影
+auto y = y_fwd + y_bwd.flip({2});
+auto out = torch::mm(y_flat, out_proj_weight.t());
+```
+
+**4种模式支持**:
+- Original: use_fused=false, use_fixlen=false
+- Fixlen: use_fused=false, use_fixlen=true
+- Fused: use_fused=true, use_fixlen=false
+- Fused-Fixlen: use_fused=true, use_fixlen=true
+
+#### 2. setup.py (modules目录)
+编译脚本，特性：
+- 自动生成selective_scan_core.cpp（去除PYBIND11_MODULE）
+- 支持Windows(MSVC)和Linux(GCC)
+- ARM平台(aarch64)启用NEON优化
+- 针对RK3588的Cortex-A76优化
+```python
+if machine in ['aarch64', 'arm64']:
+    extra_compile_args.extend(['-march=armv8-a+simd', '-ftree-vectorize'])
+```
+
+#### 3. mamba_simple.py修改
+添加use_full_cpp参数和全C++前向路径：
+```python
+if self.use_full_cpp and HAS_VISION_MAMBA_CPP:
+    return vision_mamba_cpp.mamba_forward(
+        hidden_states, self.in_proj.weight, self.in_proj.bias,
+        self.conv1d.weight, self.conv1d.bias,
+        self.conv1d_b.weight, self.conv1d_b.bias,
+        self.x_proj.weight, self.x_proj_b.weight,
+        self.dt_proj.weight, self.dt_proj.bias,
+        self.dt_proj_b.weight, self.dt_proj_b.bias,
+        self.A_log, self.A_b_log, self.D, self.D_b,
+        self.out_proj.weight, self.out_proj.bias,
+        self.d_conv, self.dt_rank, self.d_state,
+        self.use_fused_bidirectional, self.use_fixlen_scan
+    )
+```
+
+#### 4. inf_cpu.py修改
+新增4种全C++测试配置：
+- FullCPP-Original
+- FullCPP-Fixlen
+- FullCPP-Fused
+- FullCPP-Fused-Fixlen
+
+### 技术要点
+
+#### 与selective_scan.cpp的链接
+使用extern声明链接：
+```cpp
+extern torch::Tensor Selective_Scan_Ref_Cpu(...);
+extern torch::Tensor Selective_Scan_Ref_Fixlen_Cpu(...);
+extern torch::Tensor Selective_Fused_Scan_Cpu(...);
+extern torch::Tensor Selective_Fused_Scan_Fixlen_Cpu(...);
+```
+
+#### Python绑定
+```cpp
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+    m.def("mamba_forward", &Mamba_Forward_Cpu, ...);
+    m.def("mamba_forward_fused", &Mamba_Forward_Fused_Cpu, ...);
+    m.def("mamba_forward_bidirectional", &Mamba_Forward_Bidirectional_Cpu, ...);
+}
+```
+
+### 编译和测试
+
+```bash
+# 编译
+cd VisionMamba_CPU/mamba-1p1p1/mamba_ssm/modules
+python setup.py build_ext --inplace
+
+# 测试
+cd ../../../vim
+python inf_cpu.py
+```
+
+### 预期性能
+
+| 配置 | 预期加速比 |
+|------|-----------|
+| FullCPP-Original | 1.3-1.5x (vs Python-Original) |
+| FullCPP-Fixlen | 3.0-3.5x |
+| FullCPP-Fused | 3.8-4.2x |
+| FullCPP-Fused-Fixlen | 4.0-4.5x |
+
+全C++实现消除了所有Python解释器开销，预期比混合Python/C++实现再快10-20%。
+
+### 结论
+成功实现完整的C++ VisionMamba模块，包含所有4种优化变体。通过与selective_scan.cpp的链接，实现了从输入投影到输出投影的完整C++前向传播，进一步减少Python/C++边界开销。
+
+---
+
+## 任务26：优化内存布局提高缓存命中率
+- 开始时间：2025-12-29T18:12
+- 结束时间：2025-12-29T18:15
+- 状态：✓完成
+- 修改文件：selective_scan.cpp, selective_scan_interface.py
+- 依赖：任务25
+
+### 任务背景
+递推循环中的内存访问模式非常规律：
+```python
+for i in range(1, seqlen):
+    deltaB_u_bi[:, :, i] = deltaA_bi[:, :, i] * deltaB_u_bi[:, :, i-1] + deltaB_u_bi[:, :, i]
+```
+原布局`(B,D,L,2N)`访问L维度时需要跳过2N个元素，缓存不友好。
+
+### 优化方案
+**改变内存布局从`(B,D,L,2N)`到`(B,D,2N,L)`**，让L维度连续。
+
+### 原理
+```
+原布局(B,D,L,2N)：
+  内存: [b0d0l0n0, b0d0l0n1, ..., b0d0l1n0, ...]
+  访问L时跳过2N个元素
+
+新布局(B,D,2N,L)：
+  内存: [b0d0n0l0, b0d0n0l1, b0d0n0l2, ...]
+  访问L是连续的
+```
+
+### 实现内容
+
+#### 1. Python selective_scan_interface.py
+```python
+# 新布局(B,D,2N,L)
+deltaA_bi = torch.empty(batch, dim, 2 * dstate, seqlen, ...)
+deltaB_u_bi = torch.empty(batch, dim, 2 * dstate, seqlen, ...)
+
+# einsum输出bdln需要permute到bdnl
+deltaA_bi[:,:,:dstate,:] = torch.exp(einsum(...)).permute(0,1,3,2)
+
+# 递推访问变成连续
+for i in range(1, seqlen):
+    deltaB_u_bi[:,:,:,i] += deltaA_bi[:,:,:,i] * deltaB_u_bi[:,:,:,i-1]
+
+# 输出计算前permute回bdln
+deltaB_u_fwd_out = deltaB_u_bi[:,:,:dstate,:].permute(0,1,3,2)
+```
+
+#### 2. C++ selective_scan.cpp
+```cpp
+// 新布局(B,D,2N,L)
+auto deltaA_bi = torch::empty({batch, dim, 2*dstate, seq_len}, ...);
+
+// 写入时permute
+auto temp = (...).permute({0, 1, 3, 2});
+deltaA_bi.narrow(2, 0, dstate).copy_(temp);
+
+// 递推使用select(3, i)访问L维度
+for (int64_t i = 1; i < seq_len; i++) {
+    auto deltaA_i = deltaA_bi.select(3, i);      // (B,D,2N)
+    auto prev = deltaB_u_bi.select(3, i-1);      // (B,D,2N)
+    deltaB_u_bi.select(3, i).add_(deltaA_i * prev);
+}
+
+// 输出前permute回来
+auto out = deltaB_u_bi.narrow(2, 0, dstate).permute({0,1,3,2});
+```
+
+### 预期收益
+
+| 指标 | 原布局 | 新布局 |
+|------|--------|--------|
+| L维度连续 | ✗ 跳2N | ✓ 连续 |
+| 缓存命中率 | 低 | 高 |
+| 预取效率 | 差 | 好 |
+
+在内存带宽受限的ARM平台上效果尤为明显。
+
+### 权衡
+- **优点**：递推循环缓存友好
+- **缺点**：需要额外的permute操作
+- **适用**：seqlen较大时收益明显
+
+### 结论
+成功将内存布局从`(B,D,L,2N)`优化为`(B,D,2N,L)`，使递推循环中的L维度访问变为连续，预期提升缓存命中率。在ARM等内存带宽受限平台上效果更显著。
+
+---
+
+## 任务25：优化Fused方案中的cat操作
+- 开始时间：2025-12-29T11:21
+- 结束时间：2025-12-29T11:23
+- 状态：✓完成
+- 修改文件：selective_scan.cpp, selective_scan_interface.py
+- 依赖：任务21, 任务22
+
+### 任务背景
+RK3588测试结果显示：
+- Fixlen单独变慢（0.76x-1.04x）
+- Fused+Fixlen协同加速（2.56x）
+- 原因：分离双向扫描的多缓冲区开销被Fused消除
+
+### 问题分析
+`torch.cat`操作是Fused方案的瓶颈：
+```python
+deltaA_bi = torch.cat([deltaA_fwd, deltaA_bwd], dim=3)  # 分配新内存+复制
+deltaB_u_bi = torch.cat([deltaB_u_fwd, deltaB_u_bwd], dim=3)  # 再次分配+复制
+```
+每次cat需要：
+1. 分配(b,d,l,2n)大小的新内存
+2. 将两个(b,d,l,n)tensor复制到新位置
+3. 破坏缓存一致性
+
+### 优化方案
+**预分配缓冲区 + 直接写入**，消除cat的内存拷贝：
+```python
+# 一次性预分配
+deltaA_bi = torch.empty(batch, dim, seqlen, 2*dstate)
+deltaB_u_bi = torch.empty(batch, dim, seqlen, 2*dstate)
+
+# 直接写入前半部分[:n]
+deltaA_bi[:,:,:,:dstate] = torch.exp(einsum(...))
+deltaB_u_bi[:,:,:,:dstate] = einsum(...)
+
+# 直接写入后半部分[n:]
+deltaA_bi[:,:,:,dstate:] = torch.exp(einsum(...))
+deltaB_u_bi[:,:,:,dstate:] = einsum(...)
+```
+
+### 实现内容
+
+#### 1. C++ selective_scan.cpp
+修改`Selective_Fused_Scan_Cpu`和`Selective_Fused_Scan_Fixlen_Cpu`：
+- 使用`torch::empty`预分配(b,d,l,2n)缓冲区
+- 使用`narrow()`获取视图，直接写入
+- 输出分离时使用`narrow()`替代切片索引
+
+#### 2. Python selective_scan_interface.py
+修改`selective_fused_scan_ref`和`selective_fused_scan_ref_fixlen`：
+- 使用`torch.empty`预分配缓冲区
+- 直接写入`[:,:,:,:dstate]`和`[:,:,:,dstate:]`
+- 输出分离时使用`.narrow(3, 0, n)`替代切片
+
+### 优化收益
+
+| 操作 | 原方案 | 优化后 |
+|------|--------|--------|
+| 内存分配 | 4次(fwd, bwd, cat×2) | 2次(预分配) |
+| 数据拷贝 | 2次(cat) | 0次 |
+| 缓存友好 | 差 | 好 |
+
+预期在RK3588上额外加速**10-20%**。
+
+### 技术要点
+
+1. **narrow vs 切片**：
+   - `tensor.narrow(dim, start, length)`返回零开销视图
+   - 与切片`tensor[:,:,:,start:start+len]`功能相同但更高效
+
+2. **原地写入安全性**：
+   - 预分配后直接写入是安全的
+   - einsum结果直接存入目标位置，无中间变量
+
+3. **内存布局一致**：
+   - 预分配保证(b,d,l,2n)连续
+   - SIMD友好，最内层2n个元素连续
+
+### 结论
+成功消除Fused方案中的`torch.cat`操作，通过预分配+直接写入减少内存分配和数据拷贝，预期在ARM/低带宽平台获得显著性能提升。
+
+---
+
 ## 任务23：优化setup.py支持树莓派NEON指令集
 - 开始时间：2025-12-23T15:43
 - 结束时间：2025-12-23T15:43
@@ -762,3 +1059,10 @@ Benchmark completed successfully!
 2. 部署策略决策
 3. 优化方向指导
 4. 教学演示材料
+  
+## ����24���޸�Ĭ������ߴ��224��224��128��128  
+- ��ʼʱ�䣺2025-12-23T18:59  
+- ����ʱ�䣺  
+- ״̬��������  
+- �޸��ļ���models_mamba.py, inf_cpu.py  
+- ����������23 

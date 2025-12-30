@@ -77,4 +77,26 @@
   完成
 
 23. 修改setup.py函数，使其在树莓派下编译能够利用树莓派的加速指令集
+  完成
+
+24. 现在使用的模型输入默认为224*224，把它改成128*128的
+  128*128不符合我的要求，该会224*224
+  完成
+
+25. 优化当前fused方案当中的cat 操作，使用预分配+直接写入的方式进行优化
+  完成
+
+26.  优化内存布局，提高访问时缓存命中率
+  完成
+
+27. 现在我们做的更激进一点，在mamba-1p1p1当中，实现VisionMamba.cpp，这个VisionMamba.cpp完全实现class Mamba(nn.Module)，bimamba_type 为v2，可以调用C:\workspace\Workspace\Workspace\mamba-minimal\VisionMamba_CPU\mamba-1p1p1\mamba_ssm\ops\selective_scan.cpp中实现的代码，然后实现一个setup.py。最后修改inf_cpu.py，增加一种测试，为全cpp实现，包括原始实现，fixlen，fused和双重优化
+  完成
+
+28. 现在，帮我清理当前目录下无关的文件，如C:\workspace\Workspace\Workspace\mamba-minimal\VisionMamba_CPU\RASPBERRY_PI_DEPLOYMENT.md 这样的文件完全没有必要，实验结果文件也可以去掉。把你认为应该清除的文件写成delete.md
+    完成
+
+29. 按照delete.md清理文件
+    完成
+  
+30. 编写一个readme.md文件，首先说明这是一个什么项目，然后说明怎么使用，最后分析我们采用了哪些优化方法
   

@@ -37,6 +37,11 @@ if os.path.exists(mamba_dir):
 else:
     print(f"警告: 未找到mamba-1p1p1目录: {mamba_dir}")
 
+# 添加modules目录以导入vision_mamba_cpp（全C++实现）
+modules_dir = os.path.join(mamba_dir, 'mamba_ssm', 'modules')
+if os.path.exists(modules_dir):
+    sys.path.insert(0, modules_dir)
+
 from timm.models import create_model
 import models_mamba
 from viztracer import VizTracer
@@ -44,7 +49,7 @@ from viztracer import VizTracer
 
 def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
                          use_cpp_scan=False, use_fixlen_scan=False,
-                         use_fused_bidirectional=False):
+                         use_fused_bidirectional=False, use_full_cpp=False):
     """
     创建Vim-tiny模型
     
@@ -64,7 +69,11 @@ def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
     - num_classes: 1000
     """
     scan_type = "Python-Ref"
-    if use_fused_bidirectional:
+    if use_full_cpp:
+        scan_type = "FullCPP-Fused-Fixlen" if use_fused_bidirectional and use_fixlen_scan else \
+                   "FullCPP-Fused" if use_fused_bidirectional else \
+                   "FullCPP-Fixlen" if use_fixlen_scan else "FullCPP-Original"
+    elif use_fused_bidirectional:
         scan_type = "Python-Fused-BiDir"
     elif use_cpp_scan:
         scan_type = "C++-Fixlen" if use_fixlen_scan else "C++-Original"
@@ -81,6 +90,7 @@ def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
         use_cpp_scan=use_cpp_scan,
         use_fixlen_scan=use_fixlen_scan,
         use_fused_bidirectional=use_fused_bidirectional,
+        use_full_cpp=use_full_cpp,
     )
     
     # 如果提供了检查点路径，加载权重
@@ -298,6 +308,40 @@ def main():
             'use_fused_bidirectional': True,
             'desc': 'C++融合+两阶段实现（双重优化）'
         },
+        
+        # === 全C++实现（4种）===
+        {
+            'name': 'FullCPP-Original',
+            'use_cpp_scan': True,
+            'use_fixlen_scan': False,
+            'use_fused_bidirectional': False,
+            'use_full_cpp': True,
+            'desc': '全C++ Mamba实现（原始扫描）'
+        },
+        {
+            'name': 'FullCPP-Fixlen',
+            'use_cpp_scan': True,
+            'use_fixlen_scan': True,
+            'use_fused_bidirectional': False,
+            'use_full_cpp': True,
+            'desc': '全C++ Mamba实现（两阶段优化）'
+        },
+        {
+            'name': 'FullCPP-Fused',
+            'use_cpp_scan': True,
+            'use_fixlen_scan': False,
+            'use_fused_bidirectional': True,
+            'use_full_cpp': True,
+            'desc': '全C++ Mamba实现（融合双向）'
+        },
+        {
+            'name': 'FullCPP-Fused-Fixlen',
+            'use_cpp_scan': True,
+            'use_fixlen_scan': True,
+            'use_fused_bidirectional': True,
+            'use_full_cpp': True,
+            'desc': '全C++ Mamba实现（融合+两阶段）'
+        },
     ]
     
     models = {}
@@ -324,6 +368,15 @@ def main():
     log_print("步骤2: 测试各种配置（使用相同的模型参数）", logger)
     log_print("=" * 80, logger)
     
+    # 检查全C++扩展是否可用
+    try:
+        import vision_mamba_cpp
+        log_print(f"  全C++扩展: ✓ 可用", logger)
+        full_cpp_available = True
+    except ImportError:
+        log_print(f"  全C++扩展: ✗ 不可用", logger)
+        full_cpp_available = False
+    
     # 测试每种配置
     for config in test_configs:
         name = config['name']
@@ -336,11 +389,18 @@ def main():
             log_print(f"⚠ 跳过 {name}（C++扩展不可用）", logger)
             continue
         
+        # 如果全C++不可用但请求使用全C++，跳过
+        use_full_cpp = config.get('use_full_cpp', False)
+        if use_full_cpp and not full_cpp_available:
+            log_print(f"⚠ 跳过 {name}（全C++扩展不可用）", logger)
+            continue
+        
         # 创建模型
         model = create_vim_tiny_model(
             use_cpp_scan=config['use_cpp_scan'],
             use_fixlen_scan=config['use_fixlen_scan'],
-            use_fused_bidirectional=config['use_fused_bidirectional']
+            use_fused_bidirectional=config['use_fused_bidirectional'],
+            use_full_cpp=use_full_cpp
         )
         
         # ===== 关键：加载相同的参数 =====

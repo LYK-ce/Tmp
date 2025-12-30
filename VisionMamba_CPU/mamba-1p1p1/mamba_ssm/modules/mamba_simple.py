@@ -19,6 +19,14 @@ CAUSAL_CONV1D_FORCE_FALLBACK = os.environ.get("CAUSAL_CONV1D_FORCE_FALLBACK", "F
 # 总是需要导入selective_scan_fn（包含Python参考实现）
 from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref, selective_fused_scan_fn
 
+# 尝试导入全C++ VisionMamba实现
+try:
+    import vision_mamba_cpp
+    HAS_VISION_MAMBA_CPP = True
+except ImportError:
+    vision_mamba_cpp = None
+    HAS_VISION_MAMBA_CPP = False
+
 # 只有在非回退模式下才尝试导入CUDA优化版本
 if not SELECTIVE_SCAN_FORCE_FALLBACK:
     try:
@@ -74,6 +82,7 @@ class Mamba(nn.Module):
         use_cpp_scan=False,  # 使用C++优化实现
         use_fixlen_scan=False,  # 使用两阶段优化算法
         use_fused_bidirectional=False,  # 使用融合双向扫描
+        use_full_cpp=False,  # 使用完整C++ Mamba实现（包括卷积、投影等）
     ):
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -90,6 +99,7 @@ class Mamba(nn.Module):
         self.use_cpp_scan = use_cpp_scan
         self.use_fixlen_scan = use_fixlen_scan
         self.use_fused_bidirectional = use_fused_bidirectional
+        self.use_full_cpp = use_full_cpp and HAS_VISION_MAMBA_CPP
 
         self.init_layer_scale = init_layer_scale
         if init_layer_scale is not None:
@@ -200,6 +210,35 @@ class Mamba(nn.Module):
                 # The states are updated inplace
                 out, _, _ = self.step(hidden_states, conv_state, ssm_state)
                 return out
+
+        # 全C++实现路径
+        if self.use_full_cpp and HAS_VISION_MAMBA_CPP:
+            return vision_mamba_cpp.mamba_forward(
+                hidden_states,
+                self.in_proj.weight,
+                self.in_proj.bias if self.in_proj.bias is not None else torch.tensor([]),
+                self.conv1d.weight,
+                self.conv1d.bias,
+                self.conv1d_b.weight,
+                self.conv1d_b.bias,
+                self.x_proj.weight,
+                self.x_proj_b.weight,
+                self.dt_proj.weight,
+                self.dt_proj.bias,
+                self.dt_proj_b.weight,
+                self.dt_proj_b.bias,
+                self.A_log,
+                self.A_b_log,
+                self.D,
+                self.D_b,
+                self.out_proj.weight,
+                self.out_proj.bias if self.out_proj.bias is not None else torch.tensor([]),
+                self.d_conv,
+                self.dt_rank,
+                self.d_state,
+                self.use_fused_bidirectional,
+                self.use_fixlen_scan
+            )
 
         # We do matmul and transpose BLH -> HBL at the same time
         xz = rearrange(

@@ -1,0 +1,13 @@
+device,Intel(R) Core(TM) Ultra 9 285H 16GB,ARM64_Raspberry_Pi_4,ARM64_Raspberry_Pi_5,ARM64_Apple_M1,ARM64_Apple_M2
+Python-Original,703.38 ms,,,,
+Python-Fused,632.01 ms,,,,
+C++-Original,485.24 ms,,,,
+C++-Fixlen,404.67 ms,,,,
+C++-Fused,603.46 ms,,,,
+C++-Fused-Fixlen,354.11 ms,,,,
+FullCPP-Original,288.04 ms,,,,
+FullCPP-Fixlen,266.10 ms,,,,
+FullCPP-Fused,621.42 ms,,,,
+FullCPP-Fused-Fixlen,357.88 ms,,,,
+Python-Ref,277.86 ms,,,,
+Python-Fused-Alt,242.55 ms,,,,

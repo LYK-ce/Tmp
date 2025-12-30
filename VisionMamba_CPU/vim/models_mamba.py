@@ -168,6 +168,7 @@ def create_block(
     use_cpp_scan=False,  # 新增：使用C++优化实现
     use_fixlen_scan=False,  # 新增：使用两阶段优化算法
     use_fused_bidirectional=False,  # 新增：使用融合双向扫描
+    use_full_cpp=False,  # 新增：使用完整C++ Mamba实现
 ):
     if if_bimamba:
         bimamba_type = "v1"
@@ -175,7 +176,7 @@ def create_block(
         ssm_cfg = {}
     factory_kwargs = {"device": device, "dtype": dtype}
     # import ipdb; ipdb.set_trace()
-    mixer_cls = partial(Mamba, d_state=d_state, layer_idx=layer_idx, bimamba_type=bimamba_type, if_divide_out=if_divide_out, init_layer_scale=init_layer_scale, use_cpp_scan=use_cpp_scan, use_fixlen_scan=use_fixlen_scan, use_fused_bidirectional=use_fused_bidirectional, **ssm_cfg, **factory_kwargs)
+    mixer_cls = partial(Mamba, d_state=d_state, layer_idx=layer_idx, bimamba_type=bimamba_type, if_divide_out=if_divide_out, init_layer_scale=init_layer_scale, use_cpp_scan=use_cpp_scan, use_fixlen_scan=use_fixlen_scan, use_fused_bidirectional=use_fused_bidirectional, use_full_cpp=use_full_cpp, **ssm_cfg, **factory_kwargs)
     
     # 处理纯PyTorch回退模式下的RMSNorm
     if rms_norm and RMSNorm is None:
@@ -292,6 +293,7 @@ class VisionMamba(nn.Module):
                  use_cpp_scan=False,  # 新增：使用C++优化实现
                  use_fixlen_scan=False,  # 新增：使用两阶段优化算法
                  use_fused_bidirectional=False,  # 新增：使用融合双向扫描
+                 use_full_cpp=False,  # 新增：使用完整C++ Mamba实现
                  **kwargs):
         factory_kwargs = {"device": device, "dtype": dtype}
         # add factory_kwargs into kwargs
@@ -367,6 +369,7 @@ class VisionMamba(nn.Module):
                     use_cpp_scan=use_cpp_scan,
                     use_fixlen_scan=use_fixlen_scan,
                     use_fused_bidirectional=use_fused_bidirectional,
+                    use_full_cpp=use_full_cpp,
                     **factory_kwargs,
                 )
                 for i in range(depth)

@@ -1,0 +1,18 @@
+# ninja log v7
+8	9304	7880920887383158	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+16	9260	7880922674591267	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+11	9483	7880924599721510	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+11	9044	7880924865383856	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+17	9215	7880926774587476	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+0	9161	7880933162139721	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+19	9260	7880937449291428	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+13	9040	7880942150558970	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+16	9476	7880971696806844	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+14	9004	7880973499102567	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+13	8790	7880978015594863	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+16	8983	7880986106122757	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+13	8897	7880986874554380	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	5006f36bb9f9f91b
+24	12423	7881784736592278	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	f1520772e2f372f
+11	12518	7886818734202685	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	f1520772e2f372f
+12	10417	7887066724069309	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	f1520772e2f372f
+12	9501	7887072359444041	C:/workspace/Workspace/Workspace/mamba-minimal/VisionMamba_CPU/mamba-1p1p1/mamba_ssm/ops/build/temp.win-amd64-cpython-313/Release/selective_scan.obj	f1520772e2f372f

@@ -232,6 +232,7 @@ torch::Tensor Selective_Scan_Ref_Fixlen_Cpu(
 }
 
 // 融合双向Selective Scan（标准版本）
+// 使用(B,D,L,2N)布局保持与广播操作兼容，避免permute开销
 torch::Tensor Selective_Fused_Scan_Cpu(
     const torch::Tensor& dt_fwd,            // (B, D, L)
     const torch::Tensor& dt_bwd,            // (B, D, L)
@@ -255,33 +256,40 @@ torch::Tensor Selective_Fused_Scan_Cpu(
     const int64_t seq_len = dt_fwd.size(2);
     const int64_t dstate = A_fwd.size(1);
     
-    // 步骤5：计算deltaA和deltaB_u
-    // deltaA = exp(einsum('bdl,dn->bdln', dt, A))
-    auto deltaA_fwd = torch::exp(dt_fwd.unsqueeze(-1) * A_fwd.unsqueeze(0).unsqueeze(2));  // (b, d, l, n)
-    auto deltaA_bwd = torch::exp(dt_bwd.unsqueeze(-1) * A_bwd.unsqueeze(0).unsqueeze(2));  // (b, d, l, n)
+    // 使用(B,D,L,2N)布局，与广播操作兼容，避免permute
+    auto deltaA_bi = torch::empty({batch, dim, seq_len, 2 * dstate}, dt_fwd.options().dtype(torch::kFloat32));
+    auto deltaB_u_bi = torch::empty({batch, dim, seq_len, 2 * dstate}, dt_fwd.options().dtype(torch::kFloat32));
     
-    // deltaB_u = einsum('bdl,bnl,bdl->bdln', dt, B, x_conv)
-    // dt: (b, d, l), B: (b, n, l), x_conv: (b, d, l) -> (b, d, l, n)
-    auto deltaB_u_fwd = dt_fwd.unsqueeze(-1) * B_fwd.unsqueeze(1).transpose(2, 3) * x_fwd_conv.unsqueeze(-1);
-    auto deltaB_u_bwd = dt_bwd.unsqueeze(-1) * B_bwd.unsqueeze(1).transpose(2, 3) * x_bwd_conv_flip.unsqueeze(-1);
+    // 计算并写入（无需permute）
+    // dt: (B,D,L) -> (B,D,L,1), A: (D,N) -> (1,D,1,N)
+    // 正向部分 [:,:,:,:n] -> narrow(3, 0, dstate)
+    deltaA_bi.narrow(3, 0, dstate).copy_(
+        torch::exp(dt_fwd.unsqueeze(-1) * A_fwd.unsqueeze(0).unsqueeze(2))
+    );
+    // B: (B,N,L) -> (B,1,L,N)
+    deltaB_u_bi.narrow(3, 0, dstate).copy_(
+        dt_fwd.unsqueeze(-1) * B_fwd.unsqueeze(1).transpose(2, 3) * x_fwd_conv.unsqueeze(-1)
+    );
     
-    // 在N维度concat（最内层，SIMD友好！）
-    auto deltaA_bi = torch::cat({deltaA_fwd, deltaA_bwd}, 3);      // (b, d, l, 2n)
-    auto deltaB_u_bi = torch::cat({deltaB_u_fwd, deltaB_u_bwd}, 3); // (b, d, l, 2n)
+    // 反向部分 [:,:,:,n:] -> narrow(3, dstate, dstate)
+    deltaA_bi.narrow(3, dstate, dstate).copy_(
+        torch::exp(dt_bwd.unsqueeze(-1) * A_bwd.unsqueeze(0).unsqueeze(2))
+    );
+    deltaB_u_bi.narrow(3, dstate, dstate).copy_(
+        dt_bwd.unsqueeze(-1) * B_bwd.unsqueeze(1).transpose(2, 3) * x_bwd_conv_flip.unsqueeze(-1)
+    );
     
-    // 阶段1：一次递推同时更新2N个状态
+    // 阶段1：递推 - (B,D,L,2N)布局
     for (int64_t i = 1; i < seq_len; i++) {
-        auto deltaA_i = deltaA_bi.index({torch::indexing::Slice(), torch::indexing::Slice(), i});
-        auto prev = deltaB_u_bi.index({torch::indexing::Slice(), torch::indexing::Slice(), i-1});
-        deltaB_u_bi.index_put_({torch::indexing::Slice(), torch::indexing::Slice(), i},
-                                deltaA_i * prev + deltaB_u_bi.index({torch::indexing::Slice(), torch::indexing::Slice(), i}));
+        auto deltaA_i = deltaA_bi.select(2, i);       // (B, D, 2N) - 视图
+        auto prev = deltaB_u_bi.select(2, i - 1);     // (B, D, 2N) - 视图
+        auto curr = deltaB_u_bi.select(2, i);         // (B, D, 2N) - 视图
+        deltaB_u_bi.select(2, i).copy_(deltaA_i * prev + curr);
     }
     
-    // 阶段2：分离并一次性计算输出
-    auto deltaB_u_fwd_out = deltaB_u_bi.index({torch::indexing::Slice(), torch::indexing::Slice(),
-                                                 torch::indexing::Slice(), torch::indexing::Slice(torch::indexing::None, dstate)});  // (b, d, l, n)
-    auto deltaB_u_bwd_out = deltaB_u_bi.index({torch::indexing::Slice(), torch::indexing::Slice(),
-                                                 torch::indexing::Slice(), torch::indexing::Slice(dstate, torch::indexing::None)});  // (b, d, l, n)
+    // 阶段2：分离并计算输出（无需转置）
+    auto deltaB_u_fwd_out = deltaB_u_bi.narrow(3, 0, dstate);       // (b, d, l, n)
+    auto deltaB_u_bwd_out = deltaB_u_bi.narrow(3, dstate, dstate);  // (b, d, l, n)
     
     // 批量计算输出：y = einsum('bdln,bnl->bdl')
     auto y_fwd = torch::sum(deltaB_u_fwd_out * C_fwd.unsqueeze(1).transpose(2, 3), -1);  // (b, d, l)
@@ -306,7 +314,7 @@ torch::Tensor Selective_Fused_Scan_Cpu(
     return out.to(dtype_in);
 }
 
-// 融合双向Selective Scan（优化版本，使用select避免clone）
+// 融合双向Selective Scan（优化版本，使用select避免clone + 预分配消除cat + (B,D,L,2N)布局避免permute）
 torch::Tensor Selective_Fused_Scan_Fixlen_Cpu(
     const torch::Tensor& dt_fwd,            // (B, D, L)
     const torch::Tensor& dt_bwd,            // (B, D, L)
@@ -330,18 +338,28 @@ torch::Tensor Selective_Fused_Scan_Fixlen_Cpu(
     const int64_t seq_len = dt_fwd.size(2);
     const int64_t dstate = A_fwd.size(1);
     
-    // 步骤5：计算deltaA和deltaB_u
-    auto deltaA_fwd = torch::exp(dt_fwd.unsqueeze(-1) * A_fwd.unsqueeze(0).unsqueeze(2));
-    auto deltaA_bwd = torch::exp(dt_bwd.unsqueeze(-1) * A_bwd.unsqueeze(0).unsqueeze(2));
+    // 使用(B,D,L,2N)布局，与广播操作兼容，避免permute
+    auto deltaA_bi = torch::empty({batch, dim, seq_len, 2 * dstate}, dt_fwd.options().dtype(torch::kFloat32));
+    auto deltaB_u_bi = torch::empty({batch, dim, seq_len, 2 * dstate}, dt_fwd.options().dtype(torch::kFloat32));
     
-    auto deltaB_u_fwd = dt_fwd.unsqueeze(-1) * B_fwd.unsqueeze(1).transpose(2, 3) * x_fwd_conv.unsqueeze(-1);
-    auto deltaB_u_bwd = dt_bwd.unsqueeze(-1) * B_bwd.unsqueeze(1).transpose(2, 3) * x_bwd_conv_flip.unsqueeze(-1);
+    // 计算并写入（无需permute）
+    // 正向部分 [:,:,:,:n]
+    deltaA_bi.narrow(3, 0, dstate).copy_(
+        torch::exp(dt_fwd.unsqueeze(-1) * A_fwd.unsqueeze(0).unsqueeze(2))
+    );
+    deltaB_u_bi.narrow(3, 0, dstate).copy_(
+        dt_fwd.unsqueeze(-1) * B_fwd.unsqueeze(1).transpose(2, 3) * x_fwd_conv.unsqueeze(-1)
+    );
     
-    // 在N维度concat（最内层，SIMD友好！）
-    auto deltaA_bi = torch::cat({deltaA_fwd, deltaA_bwd}, 3);      // (b, d, l, 2n)
-    auto deltaB_u_bi = torch::cat({deltaB_u_fwd, deltaB_u_bwd}, 3); // (b, d, l, 2n)
+    // 反向部分 [:,:,:,n:]
+    deltaA_bi.narrow(3, dstate, dstate).copy_(
+        torch::exp(dt_bwd.unsqueeze(-1) * A_bwd.unsqueeze(0).unsqueeze(2))
+    );
+    deltaB_u_bi.narrow(3, dstate, dstate).copy_(
+        dt_bwd.unsqueeze(-1) * B_bwd.unsqueeze(1).transpose(2, 3) * x_bwd_conv_flip.unsqueeze(-1)
+    );
     
-    // 阶段1：一次递推同时更新2N个状态（使用select优化，避免clone）
+    // 阶段1：递推（原地修改，(B,D,L,2N)布局）
     for (int64_t i = 1; i < seq_len; i++) {
         auto deltaA_i = deltaA_bi.select(2, i);       // (B, D, 2N) - 视图
         auto prev = deltaB_u_bi.select(2, i - 1);     // (B, D, 2N) - 视图
@@ -349,11 +367,9 @@ torch::Tensor Selective_Fused_Scan_Fixlen_Cpu(
         deltaB_u_bi.select(2, i).add_(deltaA_i * prev);
     }
     
-    // 阶段2：分离并一次性计算输出
-    auto deltaB_u_fwd_out = deltaB_u_bi.index({torch::indexing::Slice(), torch::indexing::Slice(),
-                                                 torch::indexing::Slice(), torch::indexing::Slice(torch::indexing::None, dstate)});
-    auto deltaB_u_bwd_out = deltaB_u_bi.index({torch::indexing::Slice(), torch::indexing::Slice(),
-                                                 torch::indexing::Slice(), torch::indexing::Slice(dstate, torch::indexing::None)});
+    // 阶段2：分离并计算输出（无需转置）
+    auto deltaB_u_fwd_out = deltaB_u_bi.narrow(3, 0, dstate);       // (b, d, l, n)
+    auto deltaB_u_bwd_out = deltaB_u_bi.narrow(3, dstate, dstate);  // (b, d, l, n)
     
     // 批量计算输出
     auto y_fwd = torch::sum(deltaB_u_fwd_out * C_fwd.unsqueeze(1).transpose(2, 3), -1);

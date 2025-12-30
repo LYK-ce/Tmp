@@ -2,7 +2,7 @@
 Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现
 ================================================================================
 
-测试时间: 2025-12-24 10:55:26
+测试时间: 2025-12-30 16:01:59
 平台: AMD64
 
 环境配置:
@@ -23,6 +23,7 @@ Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现
 ================================================================================
 步骤2: 测试各种配置（使用相同的模型参数）
 ================================================================================
+  全C++扩展: ✓ 可用
 
 ================================================================================
 测试配置: Python-Original - Python原始实现（分离双向扫描）
@@ -65,29 +66,57 @@ Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现
 ✓ 已加载基础模型参数
 
 ================================================================================
+测试配置: FullCPP-Original - 全C++ Mamba实现（原始扫描）
+================================================================================
+✓ 已加载基础模型参数
+
+================================================================================
+测试配置: FullCPP-Fixlen - 全C++ Mamba实现（两阶段优化）
+================================================================================
+✓ 已加载基础模型参数
+
+================================================================================
+测试配置: FullCPP-Fused - 全C++ Mamba实现（融合双向）
+================================================================================
+✓ 已加载基础模型参数
+
+================================================================================
+测试配置: FullCPP-Fused-Fixlen - 全C++ Mamba实现（融合+两阶段）
+================================================================================
+✓ 已加载基础模型参数
+
+================================================================================
 输出一致性验证
 ================================================================================
-Python-Fixlen vs Python-Original: 最大差异 = 5.07e-07 ✓ 一致
-Python-Fused vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
-Python-Fused-Fixlen vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
-CPP-Original vs Python-Original: 最大差异 = 4.77e-07 ✓ 一致
-CPP-Fixlen vs Python-Original: 最大差异 = 4.32e-07 ✓ 一致
-CPP-Fused vs Python-Original: 最大差异 = 4.77e-07 ✓ 一致
-CPP-Fused-Fixlen vs Python-Original: 最大差异 = 4.77e-07 ✓ 一致
+Python-Fixlen vs Python-Original: 最大差异 = 6.11e-07 ✓ 一致
+Python-Fused vs Python-Original: 最大差异 = 6.48e-07 ✓ 一致
+Python-Fused-Fixlen vs Python-Original: 最大差异 = 6.48e-07 ✓ 一致
+CPP-Original vs Python-Original: 最大差异 = 6.56e-07 ✓ 一致
+CPP-Fixlen vs Python-Original: 最大差异 = 5.36e-07 ✓ 一致
+CPP-Fused vs Python-Original: 最大差异 = 6.56e-07 ✓ 一致
+CPP-Fused-Fixlen vs Python-Original: 最大差异 = 6.56e-07 ✓ 一致
+FullCPP-Original vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
+FullCPP-Fixlen vs Python-Original: 最大差异 = 6.85e-07 ✓ 一致
+FullCPP-Fused vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
+FullCPP-Fused-Fixlen vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
 
 ================================================================================
 性能对比
 ================================================================================
 配置                   时间(ms)       相对加速         说明
 --------------------------------------------------------------------------------
-Python-Original        749.72 ms     1.00x      
-Python-Fixlen          515.40 ms     1.45x      ✓
-Python-Fused           352.88 ms     2.12x      ⭐
-Python-Fused-Fixlen    492.31 ms     1.52x      ✓
-CPP-Original           714.86 ms     1.05x      ✓
-CPP-Fixlen             426.67 ms     1.76x      ✓
-CPP-Fused              356.89 ms     2.10x      ⭐
-CPP-Fused-Fixlen       302.23 ms     2.48x      ⭐
+Python-Original        703.38 ms     1.00x      
+Python-Fixlen          632.01 ms     1.11x      ✓
+Python-Fused           485.24 ms     1.45x      ✓
+Python-Fused-Fixlen    404.67 ms     1.74x      ✓
+CPP-Original           603.46 ms     1.17x      ✓
+CPP-Fixlen             354.11 ms     1.99x      ✓
+CPP-Fused              288.04 ms     2.44x      ⭐
+CPP-Fused-Fixlen       266.10 ms     2.64x      ⭐
+FullCPP-Original       621.42 ms     1.13x      ✓
+FullCPP-Fixlen         357.88 ms     1.97x      ✓
+FullCPP-Fused          277.86 ms     2.53x      ⭐
+FullCPP-Fused-Fixlen   242.55 ms     2.90x      ⭐
 
 ================================================================================
 测试总结
@@ -96,7 +125,7 @@ CPP-Fused-Fixlen       302.23 ms     2.48x      ⭐
 参数量: 7.15M
 输入尺寸: torch.Size([1, 3, 224, 224])
 输出尺寸: torch.Size([1, 1000])
-测试配置数: 8
+测试配置数: 12
 
 生成的性能分析文件:
   - vim_python-original_profile.html
@@ -107,8 +136,12 @@ CPP-Fused-Fixlen       302.23 ms     2.48x      ⭐
   - vim_cpp-fixlen_profile.html
   - vim_cpp-fused_profile.html
   - vim_cpp-fused-fixlen_profile.html
+  - vim_fullcpp-original_profile.html
+  - vim_fullcpp-fixlen_profile.html
+  - vim_fullcpp-fused_profile.html
+  - vim_fullcpp-fused-fixlen_profile.html
 
-总耗时: 52.6秒
+总耗时: 69.5秒
 ================================================================================
 
 提示:

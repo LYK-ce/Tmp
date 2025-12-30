@@ -327,6 +327,10 @@ def selective_fused_scan_ref(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
     从_forward_fuse_reference的步骤5开始，包含deltaA和deltaB_u的计算，
     将正向和反向参数在N维度concat，使用两阶段批量计算同时完成正向和反向的selective scan
     
+    优化：
+    1. 预分配缓冲区直接写入，消除torch.cat的内存拷贝开销
+    2. 使用(B,D,L,2N)布局保持einsum输出兼容性，避免permute开销
+    
     Args:
         dt_fwd: (b, d, l) - 正向的delta (已应用softplus和bias)
         dt_bwd: (b, d, l) - 反向的delta (已应用softplus和bias)
@@ -347,25 +351,27 @@ def selective_fused_scan_ref(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
         out: (b, d, l) - 融合后的输出
     """
     dtype_in = dt_fwd.dtype
-    seqlen = dt_fwd.size(2)
+    batch, dim, seqlen = dt_fwd.shape
     dstate = A_fwd.size(1)
     
-    # 步骤5：计算deltaA和deltaB_u
-    deltaA_fwd = torch.exp(torch.einsum('bdl,dn->bdln', dt_fwd, A_fwd))  # (b, d, l, n)
-    deltaA_bwd = torch.exp(torch.einsum('bdl,dn->bdln', dt_bwd, A_bwd))  # (b, d, l, n)
+    # 使用(B,D,L,2N)布局，与einsum输出格式一致，避免permute
+    deltaA_bi = torch.empty(batch, dim, seqlen, 2 * dstate, dtype=torch.float32, device=dt_fwd.device)
+    deltaB_u_bi = torch.empty(batch, dim, seqlen, 2 * dstate, dtype=torch.float32, device=dt_fwd.device)
     
-    deltaB_u_fwd = torch.einsum('bdl,bnl,bdl->bdln', dt_fwd, B_fwd, x_fwd_conv)  # (b, d, l, n)
-    deltaB_u_bwd = torch.einsum('bdl,bnl,bdl->bdln', dt_bwd, B_bwd, x_bwd_conv_flip)  # (b, d, l, n)
+    # 计算并直接写入（无需permute）
+    # 正向部分 [:,:,:,:n]
+    deltaA_bi[:, :, :, :dstate] = torch.exp(torch.einsum('bdl,dn->bdln', dt_fwd, A_fwd))
+    deltaB_u_bi[:, :, :, :dstate] = torch.einsum('bdl,bnl,bdl->bdln', dt_fwd, B_fwd, x_fwd_conv)
     
-    # 在N维度concat（最内层，SIMD友好！）
-    deltaA_bi = torch.cat([deltaA_fwd, deltaA_bwd], dim=3)  # (b, d, l, 2n)
-    deltaB_u_bi = torch.cat([deltaB_u_fwd, deltaB_u_bwd], dim=3)  # (b, d, l, 2n)
+    # 反向部分 [:,:,:,n:]
+    deltaA_bi[:, :, :, dstate:] = torch.exp(torch.einsum('bdl,dn->bdln', dt_bwd, A_bwd))
+    deltaB_u_bi[:, :, :, dstate:] = torch.einsum('bdl,bnl,bdl->bdln', dt_bwd, B_bwd, x_bwd_conv_flip)
     
-    # 阶段1：一次递推同时更新2N个状态
+    # 阶段1：递推（(B,D,L,2N)布局）
     for i in range(1, seqlen):
         deltaB_u_bi[:, :, i] = deltaA_bi[:, :, i] * deltaB_u_bi[:, :, i-1] + deltaB_u_bi[:, :, i]
     
-    # 阶段2：分离并一次性计算输出
+    # 阶段2：分离并计算输出
     deltaB_u_fwd_out = deltaB_u_bi[:, :, :, :dstate]  # (b, d, l, n)
     deltaB_u_bwd_out = deltaB_u_bi[:, :, :, dstate:]  # (b, d, l, n)
     
@@ -397,30 +403,35 @@ def selective_fused_scan_ref_fixlen(dt_fwd, dt_bwd, A_fwd, A_bwd, B_fwd, B_bwd,
     """
     融合双向Selective Scan的Python fixlen优化版本
     
-    相比selective_fused_scan_ref，没有使用index，直接原地修改更高效
+    优化点：
+    1. 预分配缓冲区直接写入，消除torch.cat的内存拷贝
+    2. 原地加法操作，减少临时变量
+    3. 使用(B,D,L,2N)布局保持einsum输出兼容性，避免permute开销
     """
     dtype_in = dt_fwd.dtype
-    seqlen = dt_fwd.size(2)
+    batch, dim, seqlen = dt_fwd.shape
     dstate = A_fwd.size(1)
     
-    # 步骤5：计算deltaA和deltaB_u
-    deltaA_fwd = torch.exp(torch.einsum('bdl,dn->bdln', dt_fwd, A_fwd))
-    deltaA_bwd = torch.exp(torch.einsum('bdl,dn->bdln', dt_bwd, A_bwd))
+    # 使用(B,D,L,2N)布局，与einsum输出格式一致，避免permute
+    deltaA_bi = torch.empty(batch, dim, seqlen, 2 * dstate, dtype=torch.float32, device=dt_fwd.device)
+    deltaB_u_bi = torch.empty(batch, dim, seqlen, 2 * dstate, dtype=torch.float32, device=dt_fwd.device)
     
-    deltaB_u_fwd = torch.einsum('bdl,bnl,bdl->bdln', dt_fwd, B_fwd, x_fwd_conv)
-    deltaB_u_bwd = torch.einsum('bdl,bnl,bdl->bdln', dt_bwd, B_bwd, x_bwd_conv_flip)
+    # 计算并直接写入（无需permute）
+    # 正向部分 [:,:,:,:n]
+    deltaA_bi[:, :, :, :dstate] = torch.exp(torch.einsum('bdl,dn->bdln', dt_fwd, A_fwd))
+    deltaB_u_bi[:, :, :, :dstate] = torch.einsum('bdl,bnl,bdl->bdln', dt_fwd, B_fwd, x_fwd_conv)
     
-    # 在N维度concat
-    deltaA_bi = torch.cat([deltaA_fwd, deltaA_bwd], dim=3)  # (b, d, l, 2n)
-    deltaB_u_bi = torch.cat([deltaB_u_fwd, deltaB_u_bwd], dim=3)  # (b, d, l, 2n)
+    # 反向部分 [:,:,:,n:]
+    deltaA_bi[:, :, :, dstate:] = torch.exp(torch.einsum('bdl,dn->bdln', dt_bwd, A_bwd))
+    deltaB_u_bi[:, :, :, dstate:] = torch.einsum('bdl,bnl,bdl->bdln', dt_bwd, B_bwd, x_bwd_conv_flip)
     
-    # 阶段1：递推（原地修改，避免select也避免index）
+    # 阶段1：递推（原地修改，(B,D,L,2N)布局）
     for i in range(1, seqlen):
         deltaB_u_bi[:, :, i] += deltaA_bi[:, :, i] * deltaB_u_bi[:, :, i-1]
     
-    # 阶段2：分离并计算输出
-    deltaB_u_fwd_out = deltaB_u_bi[:, :, :, :dstate]
-    deltaB_u_bwd_out = deltaB_u_bi[:, :, :, dstate:]
+    # 阶段2：分离并计算输出（无需转置）
+    deltaB_u_fwd_out = deltaB_u_bi[:, :, :, :dstate]  # (b, d, l, n)
+    deltaB_u_bwd_out = deltaB_u_bi[:, :, :, dstate:]  # (b, d, l, n)
     
     y_fwd = torch.einsum('bdln,bnl->bdl', deltaB_u_fwd_out, C_fwd)
     y_bwd = torch.einsum('bdln,bnl->bdl', deltaB_u_bwd_out, C_bwd)
