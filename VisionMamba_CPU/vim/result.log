@@ -2,7 +2,7 @@
 Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现
 ================================================================================
 
-测试时间: 2026-01-06 12:20:57
+测试时间: 2026-01-06 12:43:10
 平台: AMD64
 
 环境配置:
@@ -86,37 +86,44 @@ Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现
 ✓ 已加载基础模型参数
 
 ================================================================================
+测试配置: SIMD - SIMD优化实现（N维度AVX/AVX2向量化）
+================================================================================
+✓ 已加载基础模型参数
+
+================================================================================
 输出一致性验证
 ================================================================================
-Python-Fixlen vs Python-Original: 最大差异 = 7.75e-07 ✓ 一致
+Python-Fixlen vs Python-Original: 最大差异 = 7.45e-07 ✓ 一致
 Python-Fused vs Python-Original: 最大差异 = 0.00e+00 ✓ 一致
-Python-Fused-Fixlen vs Python-Original: 最大差异 = 8.94e-07 ✓ 一致
-CPP-Original vs Python-Original: 最大差异 = 7.45e-07 ✓ 一致
-CPP-Fixlen vs Python-Original: 最大差异 = 9.16e-07 ✓ 一致
-CPP-Fused vs Python-Original: 最大差异 = 7.45e-07 ✓ 一致
-CPP-Fused-Fixlen vs Python-Original: 最大差异 = 7.45e-07 ✓ 一致
-FullCPP-Original vs Python-Original: 最大差异 = 9.98e-07 ✓ 一致
-FullCPP-Fixlen vs Python-Original: 最大差异 = 1.04e-06 ✓ 一致
-FullCPP-Fused vs Python-Original: 最大差异 = 9.98e-07 ✓ 一致
-FullCPP-Fused-Fixlen vs Python-Original: 最大差异 = 9.98e-07 ✓ 一致
+Python-Fused-Fixlen vs Python-Original: 最大差异 = 7.75e-07 ✓ 一致
+CPP-Original vs Python-Original: 最大差异 = 7.15e-07 ✓ 一致
+CPP-Fixlen vs Python-Original: 最大差异 = 5.51e-07 ✓ 一致
+CPP-Fused vs Python-Original: 最大差异 = 7.15e-07 ✓ 一致
+CPP-Fused-Fixlen vs Python-Original: 最大差异 = 7.15e-07 ✓ 一致
+FullCPP-Original vs Python-Original: 最大差异 = 6.85e-07 ✓ 一致
+FullCPP-Fixlen vs Python-Original: 最大差异 = 6.85e-07 ✓ 一致
+FullCPP-Fused vs Python-Original: 最大差异 = 6.85e-07 ✓ 一致
+FullCPP-Fused-Fixlen vs Python-Original: 最大差异 = 6.85e-07 ✓ 一致
+SIMD vs Python-Original: 最大差异 = 6.85e-07 ✓ 一致
 
 ================================================================================
 性能对比
 ================================================================================
 配置                   时间(ms)       相对加速         说明
 --------------------------------------------------------------------------------
-Python-Original        866.22 ms     1.00x      
-Python-Fixlen          645.05 ms     1.34x      ✓
-Python-Fused           732.78 ms     1.18x      ✓
-Python-Fused-Fixlen    363.41 ms     2.38x      ⭐
-CPP-Original           517.48 ms     1.67x      ✓
-CPP-Fixlen             331.48 ms     2.61x      ⭐
-CPP-Fused              458.61 ms     1.89x      ✓
-CPP-Fused-Fixlen       243.33 ms     3.56x      ⭐
-FullCPP-Original       511.75 ms     1.69x      ✓
-FullCPP-Fixlen         321.85 ms     2.69x      ⭐
-FullCPP-Fused          231.79 ms     3.74x      ⭐
-FullCPP-Fused-Fixlen   217.13 ms     3.99x      ⭐
+Python-Original        781.50 ms     1.00x      
+Python-Fixlen          610.82 ms     1.28x      ✓
+Python-Fused           687.88 ms     1.14x      ✓
+Python-Fused-Fixlen    350.19 ms     2.23x      ⭐
+CPP-Original           517.51 ms     1.51x      ✓
+CPP-Fixlen             305.30 ms     2.56x      ⭐
+CPP-Fused              440.97 ms     1.77x      ✓
+CPP-Fused-Fixlen       262.98 ms     2.97x      ⭐
+FullCPP-Original       495.19 ms     1.58x      ✓
+FullCPP-Fixlen         297.39 ms     2.63x      ⭐
+FullCPP-Fused          241.31 ms     3.24x      ⭐
+FullCPP-Fused-Fixlen   207.90 ms     3.76x      ⭐
+SIMD                   113.10 ms     6.91x      ⭐
 
 ================================================================================
 测试总结
@@ -125,7 +132,7 @@ FullCPP-Fused-Fixlen   217.13 ms     3.99x      ⭐
 参数量: 7.15M
 输入尺寸: torch.Size([1, 3, 224, 224])
 输出尺寸: torch.Size([1, 1000])
-测试配置数: 12
+测试配置数: 13
 
 生成的性能分析文件:
   - vim_python-original_profile.html
@@ -140,8 +147,9 @@ FullCPP-Fused-Fixlen   217.13 ms     3.99x      ⭐
   - vim_fullcpp-fixlen_profile.html
   - vim_fullcpp-fused_profile.html
   - vim_fullcpp-fused-fixlen_profile.html
+  - vim_simd_profile.html
 
-总耗时: 72.1秒
+总耗时: 70.7秒
 ================================================================================
 
 提示:

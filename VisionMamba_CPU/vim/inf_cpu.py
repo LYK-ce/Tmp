@@ -1,5 +1,5 @@
 #Presented by KeJi
-#Date: 2025-12-22
+#Date: 2026-01-06
 
 """
 Vision Mamba CPU推理性能测试脚本
@@ -49,7 +49,8 @@ from viztracer import VizTracer
 
 def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
                          use_cpp_scan=False, use_fixlen_scan=False,
-                         use_fused_bidirectional=False, use_full_cpp=False):
+                         use_fused_bidirectional=False, use_full_cpp=False,
+                         use_simd_scan=False):
     """
     创建Vim-tiny模型
     
@@ -59,6 +60,7 @@ def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
         use_cpp_scan: 使用C++优化实现（来自Mamba_CPU）
         use_fixlen_scan: 使用两阶段优化算法（仅当use_cpp_scan=True时有效）
         use_fused_bidirectional: 使用融合双向扫描（合并正向和反向计算）
+        use_simd_scan: 使用SIMD优化的selective scan（N维度向量化）
     
     配置：
    - img_size: 224
@@ -69,7 +71,9 @@ def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
     - num_classes: 1000
     """
     scan_type = "Python-Ref"
-    if use_full_cpp:
+    if use_simd_scan:
+        scan_type = "SIMD"
+    elif use_full_cpp:
         scan_type = "FullCPP-Fused-Fixlen" if use_fused_bidirectional and use_fixlen_scan else \
                    "FullCPP-Fused" if use_fused_bidirectional else \
                    "FullCPP-Fixlen" if use_fixlen_scan else "FullCPP-Original"
@@ -91,6 +95,7 @@ def create_vim_tiny_model(pretrained=False, checkpoint_path=None,
         use_fixlen_scan=use_fixlen_scan,
         use_fused_bidirectional=use_fused_bidirectional,
         use_full_cpp=use_full_cpp,
+        use_simd_scan=use_simd_scan,
     )
     
     # 如果提供了检查点路径，加载权重
@@ -342,6 +347,17 @@ def main():
             'use_full_cpp': True,
             'desc': '全C++ Mamba实现（融合+两阶段）'
         },
+        
+        # === SIMD实现 ===
+        {
+            'name': 'SIMD',
+            'use_cpp_scan': False,
+            'use_fixlen_scan': False,
+            'use_fused_bidirectional': False,
+            'use_full_cpp': False,
+            'use_simd_scan': True,
+            'desc': 'SIMD优化实现（N维度AVX/AVX2向量化）'
+        },
     ]
     
     models = {}
@@ -396,11 +412,13 @@ def main():
             continue
         
         # 创建模型
+        use_simd_scan = config.get('use_simd_scan', False)
         model = create_vim_tiny_model(
             use_cpp_scan=config['use_cpp_scan'],
             use_fixlen_scan=config['use_fixlen_scan'],
             use_fused_bidirectional=config['use_fused_bidirectional'],
-            use_full_cpp=use_full_cpp
+            use_full_cpp=use_full_cpp,
+            use_simd_scan=use_simd_scan
         )
         
         # ===== 关键：加载相同的参数 =====
