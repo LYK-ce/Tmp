@@ -2,7 +2,7 @@
 Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现
 ================================================================================
 
-测试时间: 2025-12-30 16:01:59
+测试时间: 2026-01-06 12:20:57
 平台: AMD64
 
 环境配置:
@@ -88,35 +88,35 @@ Vision Mamba CPU推理性能测试 - 对比三种Selective Scan实现
 ================================================================================
 输出一致性验证
 ================================================================================
-Python-Fixlen vs Python-Original: 最大差异 = 6.11e-07 ✓ 一致
-Python-Fused vs Python-Original: 最大差异 = 6.48e-07 ✓ 一致
-Python-Fused-Fixlen vs Python-Original: 最大差异 = 6.48e-07 ✓ 一致
-CPP-Original vs Python-Original: 最大差异 = 6.56e-07 ✓ 一致
-CPP-Fixlen vs Python-Original: 最大差异 = 5.36e-07 ✓ 一致
-CPP-Fused vs Python-Original: 最大差异 = 6.56e-07 ✓ 一致
-CPP-Fused-Fixlen vs Python-Original: 最大差异 = 6.56e-07 ✓ 一致
-FullCPP-Original vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
-FullCPP-Fixlen vs Python-Original: 最大差异 = 6.85e-07 ✓ 一致
-FullCPP-Fused vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
-FullCPP-Fused-Fixlen vs Python-Original: 最大差异 = 5.96e-07 ✓ 一致
+Python-Fixlen vs Python-Original: 最大差异 = 7.75e-07 ✓ 一致
+Python-Fused vs Python-Original: 最大差异 = 0.00e+00 ✓ 一致
+Python-Fused-Fixlen vs Python-Original: 最大差异 = 8.94e-07 ✓ 一致
+CPP-Original vs Python-Original: 最大差异 = 7.45e-07 ✓ 一致
+CPP-Fixlen vs Python-Original: 最大差异 = 9.16e-07 ✓ 一致
+CPP-Fused vs Python-Original: 最大差异 = 7.45e-07 ✓ 一致
+CPP-Fused-Fixlen vs Python-Original: 最大差异 = 7.45e-07 ✓ 一致
+FullCPP-Original vs Python-Original: 最大差异 = 9.98e-07 ✓ 一致
+FullCPP-Fixlen vs Python-Original: 最大差异 = 1.04e-06 ✓ 一致
+FullCPP-Fused vs Python-Original: 最大差异 = 9.98e-07 ✓ 一致
+FullCPP-Fused-Fixlen vs Python-Original: 最大差异 = 9.98e-07 ✓ 一致
 
 ================================================================================
 性能对比
 ================================================================================
 配置                   时间(ms)       相对加速         说明
 --------------------------------------------------------------------------------
-Python-Original        703.38 ms     1.00x      
-Python-Fixlen          632.01 ms     1.11x      ✓
-Python-Fused           485.24 ms     1.45x      ✓
-Python-Fused-Fixlen    404.67 ms     1.74x      ✓
-CPP-Original           603.46 ms     1.17x      ✓
-CPP-Fixlen             354.11 ms     1.99x      ✓
-CPP-Fused              288.04 ms     2.44x      ⭐
-CPP-Fused-Fixlen       266.10 ms     2.64x      ⭐
-FullCPP-Original       621.42 ms     1.13x      ✓
-FullCPP-Fixlen         357.88 ms     1.97x      ✓
-FullCPP-Fused          277.86 ms     2.53x      ⭐
-FullCPP-Fused-Fixlen   242.55 ms     2.90x      ⭐
+Python-Original        866.22 ms     1.00x      
+Python-Fixlen          645.05 ms     1.34x      ✓
+Python-Fused           732.78 ms     1.18x      ✓
+Python-Fused-Fixlen    363.41 ms     2.38x      ⭐
+CPP-Original           517.48 ms     1.67x      ✓
+CPP-Fixlen             331.48 ms     2.61x      ⭐
+CPP-Fused              458.61 ms     1.89x      ✓
+CPP-Fused-Fixlen       243.33 ms     3.56x      ⭐
+FullCPP-Original       511.75 ms     1.69x      ✓
+FullCPP-Fixlen         321.85 ms     2.69x      ⭐
+FullCPP-Fused          231.79 ms     3.74x      ⭐
+FullCPP-Fused-Fixlen   217.13 ms     3.99x      ⭐
 
 ================================================================================
 测试总结
@@ -141,7 +141,7 @@ FullCPP-Fused-Fixlen   242.55 ms     2.90x      ⭐
   - vim_fullcpp-fused_profile.html
   - vim_fullcpp-fused-fixlen_profile.html
 
-总耗时: 69.5秒
+总耗时: 72.1秒
 ================================================================================
 
 提示:
